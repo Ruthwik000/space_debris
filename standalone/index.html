@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Debris Analysis Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0e27;
+            color: #fff;
+            overflow: hidden;
+        }
+        .app { display: flex; width: 100vw; height: 100vh; }
+        .sidebar {
+            width: 280px;
+            background: #151932;
+            padding: 20px;
+            border-right: 1px solid #2a3150;
+            overflow-y: auto;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 30px;
+            color: #4fc3f7;
+            line-height: 1.3;
+        }
+        .status-section, .satellite-selector { margin-bottom: 30px; }
+        h3 {
+            font-size: 14px;
+            color: #8b92b0;
+            text-transform: uppercase;
+            margin-bottom: 15px;
+            letter-spacing: 1px;
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 10px;
+            background: #4caf50;
+            box-shadow: 0 0 8px #4caf50;
+        }
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 13px;
+            border-bottom: 1px solid #2a3150;
+        }
+        .info-item label { color: #8b92b0; }
+        select {
+            width: 100%;
+            padding: 10px;
+            background: #0a0e27;
+            border: 1px solid #2a3150;
+            color: #fff;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .main-content { flex: 1; display: flex; flex-direction: column; }
+        .visualization-container {
+            flex: 1;
+            position: relative;
+            background: radial-gradient(circle at center, #1a1f3a 0%, #0a0e27 100%);
+        }
+        #canvas3d { width: 100%; height: 100%; }
+        .prediction-panel {
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+            background: #151932;
+            border-top: 1px solid #2a3150;
+            height: 280px;
+        }
+        .prediction-module {
+            flex: 1;
+            background: #1a1f3a;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #2a3150;
+        }
+        .prediction-module h3 {
+            font-size: 16px;
+            color: #4fc3f7;
+            margin-bottom: 8px;
+        }
+        .prediction-module p {
+            font-size: 12px;
+            color: #8b92b0;
+            margin-bottom: 15px;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #4fc3f7;
+            color: #0a0e27;
+            border: none;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 13px;
+            margin-top: 10px;
+        }
+        button:hover { background: #29b6f6; }
+        .result {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #2a3150;
+            font-size: 12px;
+        }
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .result-item label { color: #8b92b0; }
+        .risk-high { color: #ff5252; font-weight: 600; }
+        .risk-low { color: #4caf50; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="sidebar">
+            <h1 class="title">Space Debris<br/>Analysis</h1>
+            
+            <div class="status-section">
+                <h3>System Status</h3>
+                <div class="status-item">
+                    <span class="status-dot"></span>
+                    <span>LSTM Model: Loaded</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-dot"></span>
+                    <span>XGBoost: Loaded</span>
+                </div>
+                <div class="info-item">
+                    <label>Satellites:</label>
+                    <span id="satCount">0</span>
+                </div>
+                <div class="info-item">
+                    <label>Records:</label>
+                    <span id="recordCount">0</span>
+                </div>
+            </div>
+
+            <div class="satellite-selector">
+                <h3>Select Satellite</h3>
+                <select id="satSelect">
+                    <option value="">Choose...</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="visualization-container">
+                <canvas id="canvas3d"></canvas>
+            </div>
+            
+            <div class="prediction-panel">
+                <div class="prediction-module">
+                    <h3>Trajectory Forecasting</h3>
+                    <p>Predict future satellite position (24h)</p>
+                    <button onclick="predictTrajectory()">Predict Trajectory</button>
+                    <div id="trajectoryResult" class="result" style="display:none;"></div>
+                </div>
+
+                <div class="prediction-module">
+                    <h3>Collision Risk Assessment</h3>
+                    <p>Compare two satellites</p>
+                    <select id="sat2Select">
+                        <option value="">Select Satellite 2...</option>
+                    </select>
+                    <button onclick="predictCollision()">Assess Risk</button>
+                    <div id="collisionResult" class="result" style="display:none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const API_URL = 'http://localhost:5000/api';
+        let selectedSat = null;
+        let scene, camera, renderer, earth, controls;
+
+        // Initialize 3D scene
+        function init3D() {
+            const container = document.getElementById('canvas3d');
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 1, 100000);
+            camera.position.set(20000, 20000, 20000);
+            
+            renderer = new THREE.WebGLRenderer({ canvas: container, antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            
+            // Earth
+            const earthGeometry = new THREE.SphereGeometry(6371, 64, 64);
+            const earthMaterial = new THREE.MeshStandardMaterial({ color: 0x1e88e5 });
+            earth = new THREE.Mesh(earthGeometry, earthMaterial);
+            scene.add(earth);
+            
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const pointLight = new THREE.PointLight(0xffffff, 1);
+            pointLight.position.set(10000, 10000, 10000);
+            scene.add(pointLight);
+            
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            earth.rotation.y += 0.001;
+            camera.lookAt(0, 0, 0);
+            renderer.render(scene, camera);
+        }
+
+        // Fetch data
+        async function fetchStatus() {
+            const res = await fetch(`${API_URL}/status`);
+            const data = await res.json();
+            document.getElementById('satCount').textContent = data.total_satellites;
+            document.getElementById('recordCount').textContent = data.total_records;
+        }
+
+        async function fetchSatellites() {
+            const res = await fetch(`${API_URL}/satellites`);
+            const data = await res.json();
+            const select1 = document.getElementById('satSelect');
+            const select2 = document.getElementById('sat2Select');
+            
+            data.satellites.forEach(sat => {
+                select1.innerHTML += `<option value="${sat}">NORAD ${sat}</option>`;
+                select2.innerHTML += `<option value="${sat}">NORAD ${sat}</option>`;
+            });
+        }
+
+        document.getElementById('satSelect').addEventListener('change', async (e) => {
+            selectedSat = e.target.value;
+            if (selectedSat) {
+                const res = await fetch(`${API_URL}/orbit/${selectedSat}`);
+                const data = await res.json();
+                drawOrbit(data.orbit_points);
+            }
+        });
+
+        function drawOrbit(points) {
+            // Remove old orbits
+            scene.children = scene.children.filter(c => c.type !== 'Line');
+            
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(points.length * 3);
+            points.forEach((p, i) => {
+                positions[i * 3] = p[0];
+                positions[i * 3 + 1] = p[1];
+                positions[i * 3 + 2] = p[2];
+            });
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const material = new THREE.LineBasicMaterial({ color: 0xff5252 });
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+        }
+
+        async function predictTrajectory() {
+            if (!selectedSat) return;
+            const res = await fetch(`${API_URL}/predict/trajectory`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sat_id: parseInt(selectedSat), hours: 24 })
+            });
+            const data = await res.json();
+            const last = data.predictions[23];
+            document.getElementById('trajectoryResult').style.display = 'block';
+            document.getElementById('trajectoryResult').innerHTML = `
+                <div class="result-item"><label>Satellite:</label><span>NORAD ${data.sat_id}</span></div>
+                <div class="result-item"><label>24h Position:</label><span>X: ${last.x.toFixed(2)} km<br/>Y: ${last.y.toFixed(2)} km<br/>Z: ${last.z.toFixed(2)} km</span></div>
+            `;
+        }
+
+        async function predictCollision() {
+            const sat2 = document.getElementById('sat2Select').value;
+            if (!selectedSat || !sat2) return;
+            const res = await fetch(`${API_URL}/predict/collision`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sat1_id: parseInt(selectedSat), sat2_id: parseInt(sat2) })
+            });
+            const data = await res.json();
+            const riskClass = data.risk_level === 'HIGH' ? 'risk-high' : 'risk-low';
+            document.getElementById('collisionResult').style.display = 'block';
+            document.getElementById('collisionResult').innerHTML = `
+                <div class="result-item"><label>Distance:</label><span>${data.distance_km.toFixed(2)} km</span></div>
+                <div class="result-item"><label>Probability:</label><span class="${riskClass}">${(data.collision_probability * 100).toFixed(2)}%</span></div>
+                <div class="result-item"><label>Risk Level:</label><span class="${riskClass}">${data.risk_level}</span></div>
+            `;
+        }
+
+        // Initialize
+        init3D();
+        fetchStatus();
+        fetchSatellites();
+    </script>
+</body>
+</html>
